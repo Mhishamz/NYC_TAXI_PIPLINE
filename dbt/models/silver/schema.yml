@@ -1,0 +1,89 @@
+version: 2
+
+models:
+  - name: cleaned_taxi_trips
+    description: >
+      Silver layer: Cleaned, typed, deduplicated NYC Yellow Taxi trips.
+      Business rules applied: type casting, validation filters, derived metrics.
+    columns:
+      - name: trip_id
+        description: "SHA surrogate key derived from pickup_datetime, dropoff_datetime, vendor_id, total_amount"
+        tests:
+          - unique
+          - not_null
+
+      - name: vendor_id
+        description: "Taxi vendor (1=CMT, 2=VTS)"
+        tests:
+          - not_null:
+              severity: warn
+          - accepted_values:
+              values: [1, 2]
+              severity: warn
+
+      - name: pickup_datetime
+        description: "Trip start timestamp"
+        tests:
+          - not_null
+
+      - name: dropoff_datetime
+        description: "Trip end timestamp"
+        tests:
+          - not_null
+
+      - name: passenger_count
+        description: "Number of passengers"
+        tests:
+          - not_null:
+              severity: warn
+
+      - name: trip_distance_miles
+        description: "Trip distance in miles"
+        tests:
+          - not_null:
+              severity: warn
+
+      - name: payment_type_code
+        description: "Numeric payment type"
+        tests:
+          - accepted_values:
+              values: [1, 2, 3, 4, 5, 6]
+              severity: warn
+
+      - name: payment_type_label
+        description: "Human-readable payment type"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Credit Card', 'Cash', 'No Charge', 'Dispute', 'Unknown', 'Voided Trip', 'Other']
+
+      - name: fare_amount
+        description: "Base fare"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+              severity: warn
+
+      - name: total_amount
+        description: "Total charged amount"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+
+      - name: trip_duration_mins
+        description: "Trip duration in minutes (derived)"
+        tests:
+          - not_null:
+              severity: warn
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+              severity: warn
+
+      - name: tip_percentage
+        description: "Tip as percentage of total (derived)"
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 1"
+              severity: warn

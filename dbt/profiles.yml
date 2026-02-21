@@ -1,0 +1,26 @@
+nyc_taxi:
+  target: prod
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DB_HOST', 'localhost') }}"
+      port: "{{ env_var('DB_PORT', '5433') | int }}"
+      user: "{{ env_var('DB_USER', 'dwuser') }}"
+      password: "{{ env_var('DB_PASSWORD', 'dwpassword') }}"
+      dbname: "{{ env_var('DB_NAME', 'nyc_taxi_dw') }}"
+      schema: public
+      threads: 4
+      keepalives_idle: 0
+      connect_timeout: 10
+
+    prod:
+      type: postgres
+      host: "{{ env_var('DB_HOST', 'postgres-dw') }}"
+      port: "{{ env_var('DB_PORT', '5432') | int }}"
+      user: "{{ env_var('DB_USER', 'dwuser') }}"
+      password: "{{ env_var('DB_PASSWORD', 'dwpassword') }}"
+      dbname: "{{ env_var('DB_NAME', 'nyc_taxi_dw') }}"
+      schema: public
+      threads: 4
+      keepalives_idle: 0
+      connect_timeout: 10

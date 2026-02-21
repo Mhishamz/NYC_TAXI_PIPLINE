@@ -1,0 +1,57 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: "Raw ingested NYC Taxi data (Bronze layer - as-is from source API)"
+    schema: bronze
+    tags: ["bronze", "source"]
+    tables:
+      - name: raw_taxi_trips
+        description: "Raw NYC Yellow Taxi trip records from NYC Open Data API"
+        columns:
+          - name: ingestion_id
+            description: "Auto-incremented primary key"
+            tests:
+              - unique
+              - not_null
+
+          - name: vendor_id
+            description: "Code indicating the LPEP provider that provided the record"
+            tests:
+              - not_null:
+                  severity: warn
+
+          - name: tpep_pickup_datetime
+            description: "Date and time when the meter was engaged (string, raw)"
+            tests:
+              - not_null
+
+          - name: tpep_dropoff_datetime
+            description: "Date and time when the meter was disengaged (string, raw)"
+            tests:
+              - not_null
+
+          - name: passenger_count
+            description: "Number of passengers in the vehicle"
+
+          - name: trip_distance
+            description: "Elapsed trip distance in miles (string, raw)"
+
+          - name: payment_type
+            description: "Numeric code for how the passenger paid"
+
+          - name: total_amount
+            description: "Total amount charged to passengers (string, raw)"
+            tests:
+              - not_null:
+                  severity: warn
+
+          - name: batch_id
+            description: "Airflow batch identifier for this ingestion run"
+            tests:
+              - not_null
+
+          - name: ingested_at
+            description: "Timestamp when record was loaded into bronze"
+            tests:
+              - not_null

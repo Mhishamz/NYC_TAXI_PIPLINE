@@ -1,0 +1,49 @@
+name: 'nyc_taxi'
+version: '1.0.0'
+config-version: 2
+
+profile: 'nyc_taxi'
+
+# Model paths
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+# Global model configs
+models:
+  nyc_taxi:
+    bronze:
+      +materialized: view
+      +schema: bronze
+      +tags: ["bronze", "raw"]
+    silver:
+      +materialized: table
+      +schema: silver
+      +tags: ["silver", "cleaned"]
+    gold:
+      +materialized: table
+      +schema: gold
+      +tags: ["gold", "business"]
+
+# Test severity
+tests:
+  +severity: warn  # 'warn' keeps pipeline running; change to 'error' to hard-fail
+
+# Variable defaults
+vars:
+  execution_date: "{{ run_started_at.strftime('%Y-%m-%d') }}"
+  payment_type_map:
+    "1": "Credit Card"
+    "2": "Cash"
+    "3": "No Charge"
+    "4": "Dispute"
+    "5": "Unknown"
+    "6": "Voided Trip"

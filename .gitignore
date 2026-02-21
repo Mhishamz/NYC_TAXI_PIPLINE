@@ -1,0 +1,18 @@
+# Airflow
+airflow/logs/**/*.log
+airflow/logs/**/
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Env
+.env
+
+# OS
+.DS_Store

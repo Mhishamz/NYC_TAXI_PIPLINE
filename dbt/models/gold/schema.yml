@@ -1,0 +1,108 @@
+version: 2
+
+models:
+  - name: daily_trip_summary
+    description: >
+      Gold layer: Daily business aggregation of NYC Taxi trips.
+      Primary feed for Power BI time-series and revenue dashboards.
+    columns:
+      - name: summary_id
+        description: "Surrogate key"
+        tests:
+          - unique
+          - not_null
+
+      - name: pickup_date
+        description: "Trip date"
+        tests:
+          - not_null
+
+      - name: total_trips
+        description: "Number of completed trips"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+
+      - name: total_revenue
+        description: "Sum of all trip revenues"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+
+      - name: avg_fare_per_trip
+        description: "Average fare per trip"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+
+      - name: avg_tip_rate
+        description: "Average tip as proportion of total"
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 1"
+              severity: warn
+
+      - name: avg_duration_mins
+        description: "Average trip duration in minutes"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+              severity: warn
+
+      - name: vendor_name
+        description: "Human-readable vendor name"
+        tests:
+          - not_null
+
+      - name: payment_type_label
+        description: "Human-readable payment type"
+        tests:
+          - not_null
+
+  - name: hourly_demand_heatmap
+    description: >
+      Gold layer: Hour × Day-of-week demand matrix.
+      Powers heatmap visualizations in Power BI.
+    columns:
+      - name: pickup_hour
+        description: "Hour of day (0-23)"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 23"
+
+      - name: trip_count
+        description: "Number of trips in this hour/day slot"
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+
+  - name: payment_analysis
+    description: >
+      Gold layer: Payment type breakdown with tip behavior metrics.
+      Powers pie charts and tip analysis in Power BI.
+    columns:
+      - name: payment_type_label
+        description: "Payment method"
+        tests:
+          - unique
+          - not_null
+
+      - name: pct_of_total_trips
+        description: "Share of all trips"
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 100"
+              severity: warn
+
+      - name: tip_frequency_pct
+        description: "Percentage of trips where tip was given"
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "BETWEEN 0 AND 100"
+              severity: warn

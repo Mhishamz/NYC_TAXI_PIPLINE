@@ -1,0 +1,253 @@
+version: '3.8'
+
+x-airflow-common:
+  &airflow-common
+  image: apache/airflow:2.8.1
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
+    AIRFLOW__CORE__FERNET_KEY: ''
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
+    AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
+    AIRFLOW__LOGGING__REMOTE_LOGGING: 'false'
+    AIRFLOW__METRICS__STATSD_ON: 'false'
+    # Data warehouse connection
+    DW_HOST: postgres-dw
+    DW_PORT: 5432
+    DW_USER: dwuser
+    DW_PASSWORD: dwpassword
+    DW_DB: nyc_taxi_dw
+    # NYC Taxi API
+    NYC_TAXI_URL: https://data.cityofnewyork.us/resource/qp3b-zxtp.json
+    _PIP_ADDITIONAL_REQUIREMENTS: >-
+      apache-airflow-providers-postgres==5.10.2
+      requests==2.31.0
+      pandas==2.1.4
+      psycopg2-binary==2.9.9
+      dbt-postgres==1.7.4
+  volumes:
+    - ./airflow/dags:/opt/airflow/dags
+    - ./airflow/logs:/opt/airflow/logs
+    - ./airflow/plugins:/opt/airflow/plugins
+    - ./airflow/config/airflow.cfg:/opt/airflow/airflow.cfg
+    - ./dbt:/opt/dbt
+    - ./scripts:/opt/scripts
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    &airflow-common-depends-on
+    postgres-airflow:
+      condition: service_healthy
+  networks:
+    - taxi_pipeline
+
+services:
+
+  # ─────────────────────────────────────────────
+  # Airflow Metadata DB
+  # ─────────────────────────────────────────────
+  postgres-airflow:
+    image: postgres:15
+    container_name: postgres-airflow
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_airflow_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+    networks:
+      - taxi_pipeline
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─────────────────────────────────────────────
+  # Data Warehouse (Medallion Architecture)
+  # ─────────────────────────────────────────────
+  postgres-dw:
+    image: postgres:15
+    container_name: postgres-dw
+    environment:
+      POSTGRES_USER: dwuser
+      POSTGRES_PASSWORD: dwpassword
+      POSTGRES_DB: nyc_taxi_dw
+    volumes:
+      - postgres_dw_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "dwuser", "-d", "nyc_taxi_dw"]
+      interval: 10s
+      retries: 5
+      start_period: 10s
+    restart: always
+    networks:
+      - taxi_pipeline
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─────────────────────────────────────────────
+  # Airflow Webserver
+  # ─────────────────────────────────────────────
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - taxi_pipeline
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ─────────────────────────────────────────────
+  # Airflow Scheduler
+  # ─────────────────────────────────────────────
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: airflow-scheduler
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+    networks:
+      - taxi_pipeline
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ─────────────────────────────────────────────
+  # Airflow Init
+  # ─────────────────────────────────────────────
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        function ver() {
+          printf "%04d%04d%04d%04d" $${1//./ }
+        }
+        airflow_version=$$(AIRFLOW__LOGGING__LOGGING_LEVEL=ERROR python -c "import airflow; print(airflow.__version__)")
+        echo "Airflow version: $$airflow_version"
+        if [[ $$(ver $$airflow_version) -lt $$(ver "2.2.0") ]]; then
+          echo "ERROR: Airflow version 2.2.0+ required"
+          exit 1
+        fi
+        mkdir -p /sources/logs /sources/dags /sources/plugins
+        chown -R "${AIRFLOW_UID}:0" /sources/{logs,dags,plugins}
+        exec airflow db init
+        airflow users create \
+          --username admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com \
+          --password admin
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-admin}
+    user: "0:0"
+    volumes:
+      - ./airflow:/sources
+    networks:
+      - taxi_pipeline
+
+  # ─────────────────────────────────────────────
+  # DBT Runner (on-demand container)
+  # ─────────────────────────────────────────────
+  dbt:
+    image: ghcr.io/dbt-labs/dbt-postgres:1.7.4
+    container_name: dbt
+    environment:
+      DBT_PROFILES_DIR: /dbt
+      DB_HOST: postgres-dw
+      DB_PORT: 5432
+      DB_USER: dwuser
+      DB_PASSWORD: dwpassword
+      DB_NAME: nyc_taxi_dw
+    volumes:
+      - ./dbt:/dbt
+    depends_on:
+      postgres-dw:
+        condition: service_healthy
+    networks:
+      - taxi_pipeline
+    profiles:
+      - dbt
+    command: debug
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─────────────────────────────────────────────
+  # Adminer (DB GUI for development)
+  # ─────────────────────────────────────────────
+  adminer:
+    image: adminer:4.8.1
+    container_name: adminer
+    ports:
+      - "8081:8080"
+    restart: always
+    networks:
+      - taxi_pipeline
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+networks:
+  taxi_pipeline:
+    driver: bridge
+
+volumes:
+  postgres_airflow_data:
+  postgres_dw_data:
