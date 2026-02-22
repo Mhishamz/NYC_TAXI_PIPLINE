@@ -94,22 +94,15 @@ services:
   airflow-init:
     <<: *airflow-common
     container_name: airflow-init
-    entrypoint: /entrypoint
-    command:
-      - -c
-      - |
-        set -e
-        mkdir -p /opt/airflow/logs /opt/airflow/dags /opt/airflow/plugins
-        airflow db init
-        airflow users create \
-          --username admin \
-          --firstname Admin \
-          --lastname User \
-          --role Admin \
-          --email admin@example.com \
-          --password admin || true
-        echo "Init done."
-    user: "0:0"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/plugins:/opt/airflow/plugins
+      - ./dbt:/opt/dbt
+      - ./scripts:/opt/scripts
+      - /var/run/docker.sock:/var/run/docker.sock
+      - airflow_logs:/opt/airflow/logs
+    entrypoint: /bin/bash
+    command: ["/opt/scripts/airflow_init.sh"]
     restart: "no"
     networks:
       - taxi_pipeline
@@ -208,3 +201,4 @@ networks:
 volumes:
   postgres_airflow_data:
   postgres_dw_data:
+  airflow_logs:

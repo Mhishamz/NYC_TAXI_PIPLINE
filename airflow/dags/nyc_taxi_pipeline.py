@@ -20,7 +20,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
-from airflow.utils.dates import days_ago
+from datetime import datetime
 
 # ─────────────────────────────────────────────
 # Logger
@@ -272,8 +272,8 @@ with DAG(
     dag_id="nyc_taxi_pipeline",
     description="NYC Taxi ELT Pipeline: Ingest → Bronze → Silver → Gold via dbt",
     default_args=default_args,
-    schedule_interval="0 2 * * *",  # Daily at 02:00 UTC
-    start_date=days_ago(1),
+    schedule_interval=None,  # Manual trigger only
+    start_date=datetime(2024, 1, 1),
     catchup=False,
     max_active_runs=1,
     tags=["nyc-taxi", "elt", "medallion", "dbt", "production"],
@@ -307,12 +307,10 @@ with DAG(
     dbt_silver = BashOperator(
         task_id="dbt_transform_silver",
         bash_command="""
-            cd /opt/dbt && \
-            dbt run \
-                --profiles-dir /opt/dbt \
-                --project-dir /opt/dbt \
+            docker exec dbt dbt run \
+                --profiles-dir /dbt \
+                --project-dir /dbt \
                 --select silver \
-                --vars '{"execution_date": "{{ ds }}"}' \
                 --log-format json 2>&1 | tee /opt/airflow/logs/dbt_silver_{{ ds }}.log
         """,
     )
@@ -321,12 +319,10 @@ with DAG(
     dbt_gold = BashOperator(
         task_id="dbt_transform_gold",
         bash_command="""
-            cd /opt/dbt && \
-            dbt run \
-                --profiles-dir /opt/dbt \
-                --project-dir /opt/dbt \
+            docker exec dbt dbt run \
+                --profiles-dir /dbt \
+                --project-dir /dbt \
                 --select gold \
-                --vars '{"execution_date": "{{ ds }}"}' \
                 --log-format json 2>&1 | tee /opt/airflow/logs/dbt_gold_{{ ds }}.log
         """,
     )
@@ -335,10 +331,9 @@ with DAG(
     dbt_test = BashOperator(
         task_id="dbt_test",
         bash_command="""
-            cd /opt/dbt && \
-            dbt test \
-                --profiles-dir /opt/dbt \
-                --project-dir /opt/dbt \
+            docker exec dbt dbt test \
+                --profiles-dir /dbt \
+                --project-dir /dbt \
                 --log-format json 2>&1 | tee /opt/airflow/logs/dbt_test_{{ ds }}.log
         """,
     )
@@ -347,10 +342,9 @@ with DAG(
     dbt_docs = BashOperator(
         task_id="dbt_generate_docs",
         bash_command="""
-            cd /opt/dbt && \
-            dbt docs generate \
-                --profiles-dir /opt/dbt \
-                --project-dir /opt/dbt \
+            docker exec dbt dbt docs generate \
+                --profiles-dir /dbt \
+                --project-dir /dbt \
                 --log-format json 2>&1 | tee /opt/airflow/logs/dbt_docs_{{ ds }}.log
         """,
         trigger_rule="all_done",
