@@ -16,28 +16,19 @@ x-airflow-common:
     AIRFLOW__LOGGING__LOGGING_LEVEL: INFO
     AIRFLOW__LOGGING__BASE_LOG_FOLDER: /opt/airflow/logs
     AIRFLOW__LOGGING__REMOTE_LOGGING: 'false'
-    AIRFLOW__METRICS__STATSD_ON: 'false'
-    # Data warehouse connection
+    # Data warehouse
     DW_HOST: postgres-dw
     DW_PORT: 5432
     DW_USER: dwuser
     DW_PASSWORD: dwpassword
     DW_DB: nyc_taxi_dw
-    # NYC Taxi API
     NYC_TAXI_URL: https://data.cityofnewyork.us/resource/qp3b-zxtp.json
-    _PIP_ADDITIONAL_REQUIREMENTS: >-
-      apache-airflow-providers-postgres==5.10.2
-      requests==2.31.0
-      pandas==2.1.4
-      psycopg2-binary==2.9.9
-      dbt-postgres==1.7.4
   volumes:
     - ./airflow/dags:/opt/airflow/dags
     - ./airflow/logs:/opt/airflow/logs
     - ./airflow/plugins:/opt/airflow/plugins
-    - ./airflow/config/airflow.cfg:/opt/airflow/airflow.cfg
     - ./dbt:/opt/dbt
-    - ./scripts:/opt/scripts
+    - /var/run/docker.sock:/var/run/docker.sock
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -48,9 +39,7 @@ x-airflow-common:
 
 services:
 
-  # ─────────────────────────────────────────────
-  # Airflow Metadata DB
-  # ─────────────────────────────────────────────
+  # ── Airflow Metadata DB ──────────────────────
   postgres-airflow:
     image: postgres:15
     container_name: postgres-airflow
@@ -74,9 +63,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ─────────────────────────────────────────────
-  # Data Warehouse (Medallion Architecture)
-  # ─────────────────────────────────────────────
+  # ── Data Warehouse (Medallion Architecture) ──
   postgres-dw:
     image: postgres:15
     container_name: postgres-dw
@@ -103,9 +90,31 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ─────────────────────────────────────────────
-  # Airflow Webserver
-  # ─────────────────────────────────────────────
+  # ── Airflow Init (one-shot) ──────────────────
+  airflow-init:
+    <<: *airflow-common
+    container_name: airflow-init
+    entrypoint: /entrypoint
+    command:
+      - -c
+      - |
+        set -e
+        mkdir -p /opt/airflow/logs /opt/airflow/dags /opt/airflow/plugins
+        airflow db init
+        airflow users create \
+          --username admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com \
+          --password admin || true
+        echo "Init done."
+    user: "0:0"
+    restart: "no"
+    networks:
+      - taxi_pipeline
+
+  # ── Airflow Webserver ────────────────────────
   airflow-webserver:
     <<: *airflow-common
     container_name: airflow-webserver
@@ -117,7 +126,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     restart: always
     depends_on:
       <<: *airflow-common-depends-on
@@ -131,9 +140,7 @@ services:
         max-size: "20m"
         max-file: "5"
 
-  # ─────────────────────────────────────────────
-  # Airflow Scheduler
-  # ─────────────────────────────────────────────
+  # ── Airflow Scheduler ────────────────────────
   airflow-scheduler:
     <<: *airflow-common
     container_name: airflow-scheduler
@@ -143,7 +150,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
     restart: always
     depends_on:
       <<: *airflow-common-depends-on
@@ -157,50 +164,7 @@ services:
         max-size: "20m"
         max-file: "5"
 
-  # ─────────────────────────────────────────────
-  # Airflow Init
-  # ─────────────────────────────────────────────
-  airflow-init:
-    <<: *airflow-common
-    container_name: airflow-init
-    entrypoint: /bin/bash
-    command:
-      - -c
-      - |
-        function ver() {
-          printf "%04d%04d%04d%04d" $${1//./ }
-        }
-        airflow_version=$$(AIRFLOW__LOGGING__LOGGING_LEVEL=ERROR python -c "import airflow; print(airflow.__version__)")
-        echo "Airflow version: $$airflow_version"
-        if [[ $$(ver $$airflow_version) -lt $$(ver "2.2.0") ]]; then
-          echo "ERROR: Airflow version 2.2.0+ required"
-          exit 1
-        fi
-        mkdir -p /sources/logs /sources/dags /sources/plugins
-        chown -R "${AIRFLOW_UID}:0" /sources/{logs,dags,plugins}
-        exec airflow db init
-        airflow users create \
-          --username admin \
-          --firstname Admin \
-          --lastname User \
-          --role Admin \
-          --email admin@example.com \
-          --password admin
-    environment:
-      <<: *airflow-common-env
-      _AIRFLOW_DB_MIGRATE: 'true'
-      _AIRFLOW_WWW_USER_CREATE: 'true'
-      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-admin}
-      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-admin}
-    user: "0:0"
-    volumes:
-      - ./airflow:/sources
-    networks:
-      - taxi_pipeline
-
-  # ─────────────────────────────────────────────
-  # DBT Runner (on-demand container)
-  # ─────────────────────────────────────────────
+  # ── dbt (always-on, Airflow execs into it) ───
   dbt:
     image: ghcr.io/dbt-labs/dbt-postgres:1.7.4
     container_name: dbt
@@ -213,23 +177,21 @@ services:
       DB_NAME: nyc_taxi_dw
     volumes:
       - ./dbt:/dbt
+    entrypoint: /bin/sh
+    command: -c "tail -f /dev/null"
     depends_on:
       postgres-dw:
         condition: service_healthy
+    restart: always
     networks:
       - taxi_pipeline
-    profiles:
-      - dbt
-    command: debug
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
-  # ─────────────────────────────────────────────
-  # Adminer (DB GUI for development)
-  # ─────────────────────────────────────────────
+  # ── Adminer (DB GUI) ─────────────────────────
   adminer:
     image: adminer:4.8.1
     container_name: adminer
@@ -238,11 +200,6 @@ services:
     restart: always
     networks:
       - taxi_pipeline
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
 
 networks:
   taxi_pipeline:
