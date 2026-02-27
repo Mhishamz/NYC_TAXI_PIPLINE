@@ -7,7 +7,7 @@
     indexes=[
       {'columns': ['pickup_datetime'], 'type': 'btree'},
       {'columns': ['vendor_id'],       'type': 'btree'},
-      {'columns': ['payment_type'],    'type': 'btree'},
+      {'columns': ['payment_type_code'], 'type': 'btree'},
     ],
     post_hook=[
       "ANALYZE {{ this }}"
@@ -42,27 +42,34 @@ cast_and_clean AS (
         batch_id,
         ingested_at,
 
-        -- Vendor
-        NULLIF(TRIM(vendor_id), '')::INTEGER                       AS vendor_id,
+        -- Vendor (safe cast: only cast if looks like a small integer)
+        CASE WHEN TRIM(COALESCE(vendor_id, '')) ~ '^[0-9]+(\.0+)?$'
+             THEN TRIM(vendor_id)::NUMERIC::INTEGER END            AS vendor_id,
 
         -- Timestamps
         tpep_pickup_datetime::TIMESTAMP                            AS pickup_datetime,
         tpep_dropoff_datetime::TIMESTAMP                           AS dropoff_datetime,
 
         -- Passengers & distance
-        NULLIF(TRIM(passenger_count), '')::INTEGER                 AS passenger_count,
-        NULLIF(TRIM(trip_distance), '')::NUMERIC(10, 2)            AS trip_distance_miles,
+        CASE WHEN TRIM(COALESCE(passenger_count, '')) ~ '^[0-9]+(\.0+)?$'
+             THEN TRIM(passenger_count)::NUMERIC::INTEGER END      AS passenger_count,
+        CASE WHEN TRIM(COALESCE(trip_distance, '')) ~ '^-?[0-9]+(\.?[0-9]+)?$'
+             THEN TRIM(trip_distance)::NUMERIC(10,2) END           AS trip_distance_miles,
 
         -- Location IDs
-        NULLIF(TRIM(pu_location_id), '')::INTEGER                  AS pickup_location_id,
-        NULLIF(TRIM(do_location_id), '')::INTEGER                  AS dropoff_location_id,
+        CASE WHEN TRIM(COALESCE(pu_location_id, '')) ~ '^[0-9]+(\.0+)?$'
+             THEN TRIM(pu_location_id)::NUMERIC::INTEGER END       AS pickup_location_id,
+        CASE WHEN TRIM(COALESCE(do_location_id, '')) ~ '^[0-9]+(\.0+)?$'
+             THEN TRIM(do_location_id)::NUMERIC::INTEGER END       AS dropoff_location_id,
 
         -- Rate & flags
-        NULLIF(TRIM(rate_code_id), '')::INTEGER                    AS rate_code_id,
+        CASE WHEN TRIM(COALESCE(rate_code_id, '')) ~ '^[0-9]+(\.0+)?$'
+             THEN TRIM(rate_code_id)::NUMERIC::INTEGER END         AS rate_code_id,
         TRIM(store_and_fwd_flag)                                   AS store_and_fwd_flag,
 
         -- Payment
-        NULLIF(TRIM(payment_type), '')::INTEGER                    AS payment_type_code,
+        CASE WHEN TRIM(COALESCE(payment_type, '')) ~ '^[0-9]+(\.0+)?$'
+             THEN TRIM(payment_type)::NUMERIC::INTEGER END         AS payment_type_code,
         CASE TRIM(payment_type)
             WHEN '1' THEN 'Credit Card'
             WHEN '2' THEN 'Cash'
@@ -73,16 +80,25 @@ cast_and_clean AS (
             ELSE          'Other'
         END                                                        AS payment_type_label,
 
-        -- Fare components
-        NULLIF(TRIM(fare_amount), '')::NUMERIC(10, 2)              AS fare_amount,
-        NULLIF(TRIM(extra), '')::NUMERIC(10, 2)                    AS extra,
-        NULLIF(TRIM(mta_tax), '')::NUMERIC(10, 2)                  AS mta_tax,
-        NULLIF(TRIM(tip_amount), '')::NUMERIC(10, 2)               AS tip_amount,
-        NULLIF(TRIM(tolls_amount), '')::NUMERIC(10, 2)             AS tolls_amount,
-        NULLIF(TRIM(improvement_surcharge), '')::NUMERIC(10, 2)    AS improvement_surcharge,
-        NULLIF(TRIM(congestion_surcharge), '')::NUMERIC(10, 2)     AS congestion_surcharge,
-        NULLIF(TRIM(airport_fee), '')::NUMERIC(10, 2)              AS airport_fee,
-        NULLIF(TRIM(total_amount), '')::NUMERIC(10, 2)             AS total_amount
+        -- Fare components (safe cast: NULL if not a valid decimal)
+        CASE WHEN fare_amount ~ '^-?[0-9]+(\.?[0-9]+)?$'
+             THEN TRIM(fare_amount)::NUMERIC(10,2) END             AS fare_amount,
+        CASE WHEN extra ~ '^-?[0-9]+(\.?[0-9]+)?$'
+             THEN TRIM(extra)::NUMERIC(10,2) END                   AS extra,
+        CASE WHEN mta_tax ~ '^-?[0-9]+(\.?[0-9]+)?$'
+             THEN TRIM(mta_tax)::NUMERIC(10,2) END                 AS mta_tax,
+        CASE WHEN tip_amount ~ '^-?[0-9]+(\.?[0-9]+)?$'
+             THEN TRIM(tip_amount)::NUMERIC(10,2) END              AS tip_amount,
+        CASE WHEN tolls_amount ~ '^-?[0-9]+(\.?[0-9]+)?$'
+             THEN TRIM(tolls_amount)::NUMERIC(10,2) END            AS tolls_amount,
+        CASE WHEN improvement_surcharge ~ '^-?[0-9]+(\.?[0-9]+)?$'
+             THEN TRIM(improvement_surcharge)::NUMERIC(10,2) END   AS improvement_surcharge,
+        CASE WHEN congestion_surcharge ~ '^-?[0-9]+(\.?[0-9]+)?$'
+             THEN TRIM(congestion_surcharge)::NUMERIC(10,2) END    AS congestion_surcharge,
+        CASE WHEN airport_fee ~ '^-?[0-9]+(\.?[0-9]+)?$'
+             THEN TRIM(airport_fee)::NUMERIC(10,2) END             AS airport_fee,
+        CASE WHEN total_amount ~ '^-?[0-9]+(\.?[0-9]+)?$'
+             THEN TRIM(total_amount)::NUMERIC(10,2) END            AS total_amount
 
     FROM source
     WHERE tpep_pickup_datetime IS NOT NULL
@@ -118,10 +134,10 @@ enrich AS (
 
         -- Date parts for partitioning / BI
         DATE(pickup_datetime)                                       AS pickup_date,
-        EXTRACT(HOUR FROM pickup_datetime)::INTEGER                 AS pickup_hour,
+        EXTRACT(HOUR FROM pickup_datetime)::BIGINT                 AS pickup_hour,
         TO_CHAR(pickup_datetime, 'Day')                            AS pickup_day_of_week,
-        EXTRACT(MONTH FROM pickup_datetime)::INTEGER                AS pickup_month,
-        EXTRACT(YEAR FROM pickup_datetime)::INTEGER                 AS pickup_year
+        EXTRACT(MONTH FROM pickup_datetime)::BIGINT                AS pickup_month,
+        EXTRACT(YEAR FROM pickup_datetime)::BIGINT                 AS pickup_year
 
     FROM cast_and_clean
 
@@ -147,7 +163,7 @@ validated AS (
       AND total_amount  > 0
       AND fare_amount   >= 0
       AND trip_distance_miles >= 0
-      AND passenger_count BETWEEN 1 AND 8
+      AND passenger_count BETWEEN 0 AND 20
       AND trip_duration_mins BETWEEN 1 AND 360  -- 1 min to 6 hrs
       AND pickup_datetime < dropoff_datetime
 

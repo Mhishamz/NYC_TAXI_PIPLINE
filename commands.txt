@@ -1,0 +1,7 @@
+   46  docker compose up -d
+   47  docker compose exec airflow-webserver airflow connections add postgres_dw   --conn-type postgres   --conn-host postgres-dw   --conn-port 5432   --conn-login dwuser   --conn-password dwpassword   --conn-schema nyc_taxi_dw   --conn-description "NYC Taxi Data Warehouse (Medallion Architecture)"
+   48  docker compose exec postgres-dw psql -U dwuser -d nyc_taxi_dw -c "SELECT COUNT(*) FROM bronze.raw_taxi_trips;"
+   49  docker compose exec postgres-dw psql -U dwuser -d nyc_taxi_dw -c "SELECT COUNT(*) FROM silver.cleaned_taxi_trips;"
+   50  docker exec dbt dbt run                 --profiles-dir /dbt                 --project-dir /dbt                 --select silver \
+   51  docker exec dbt dbt run                 --profiles-dir /dbt                 --project-dir /dbt                 --select gold
+   52  docker exec dbt dbt test                 --profiles-dir /dbt                 --project-dir /dbt
