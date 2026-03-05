@@ -6,27 +6,7 @@
 ---
 
 ## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        NYC Taxi ELT Pipeline                        │
-│                                                                     │
-│  NYC Open Data API                                                  │
-│       │                                                             │
-│       ▼                                                             │
-│  ┌──────────┐    ┌─────────────────────────────────────────────┐   │
-│  │ Airflow  │───▶│          PostgreSQL Data Warehouse           │   │
-│  │Scheduler │    │                                             │   │
-│  │  (DAG)   │    │  bronze.*  │  silver.*  │     gold.*        │   │
-│  └──────────┘    │  (raw)     │  (cleaned) │  (aggregated)     │   │
-│       │          └─────────────────────────────────────────────┘   │
-│       │                    ▲                                        │
-│       └──── dbt ───────────┘                                        │
-│              (bronze→silver→gold transformations + tests)           │
-│                                                                     │
-│  metadata.pipeline_runs (audit log)          Power BI ◀── gold.*   │
-└─────────────────────────────────────────────────────────────────────┘
-```
+<img width="1318" height="678" alt="diagram-export-3-5-2026-4_57_54-PM" src="https://github.com/user-attachments/assets/f6ff789d-ad09-4137-97bc-109a9a914f58" />
 
 ### Medallion Architecture
 
