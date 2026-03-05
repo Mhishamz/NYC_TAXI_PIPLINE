@@ -6,8 +6,6 @@ Orchestrates the full ELT pipeline:
   2. Trigger dbt transformations: bronze → silver → gold (Medallion Architecture)
   3. Validate data quality via dbt tests
   4. Log pipeline metadata for observability
-
-Schedule: Daily at 02:00 UTC
 """
 
 from __future__ import annotations
@@ -26,21 +24,6 @@ from datetime import datetime
 # Logger
 # ─────────────────────────────────────────────
 logger = logging.getLogger(__name__)
-
-# ─────────────────────────────────────────────
-# DAG Default Arguments
-# ─────────────────────────────────────────────
-default_args = {
-    "owner": "data-engineering",
-    "depends_on_past": False,
-    "email": ["data-alerts@yourcompany.com"],
-    "email_on_failure": False,
-    "email_on_retry": False,
-    "retries": 2,
-    "retry_delay": timedelta(minutes=5),
-    "retry_exponential_backoff": True,
-    "max_retry_delay": timedelta(minutes=30),
-}
 
 # ─────────────────────────────────────────────
 # Config
@@ -271,7 +254,6 @@ def validate_bronze_data(**kwargs) -> None:
 with DAG(
     dag_id="nyc_taxi_pipeline",
     description="NYC Taxi ELT Pipeline: Ingest → Bronze → Silver → Gold via dbt",
-    default_args=default_args,
     schedule_interval=None,  # Manual trigger only
     start_date=datetime(2024, 1, 1),
     catchup=False,
@@ -310,8 +292,7 @@ with DAG(
             docker exec dbt dbt run \
                 --profiles-dir /dbt \
                 --project-dir /dbt \
-                --select silver \
-                --log-format json 2>&1 | tee /opt/airflow/logs/dbt_silver_{{ ds }}.log
+                --select silver
         """,
     )
 
@@ -322,8 +303,7 @@ with DAG(
             docker exec dbt dbt run \
                 --profiles-dir /dbt \
                 --project-dir /dbt \
-                --select gold \
-                --log-format json 2>&1 | tee /opt/airflow/logs/dbt_gold_{{ ds }}.log
+                --select gold 
         """,
     )
 
@@ -333,8 +313,7 @@ with DAG(
         bash_command="""
             docker exec dbt dbt test \
                 --profiles-dir /dbt \
-                --project-dir /dbt \
-                --log-format json 2>&1 | tee /opt/airflow/logs/dbt_test_{{ ds }}.log
+                --project-dir /dbt
         """,
     )
 
@@ -344,8 +323,7 @@ with DAG(
         bash_command="""
             docker exec dbt dbt docs generate \
                 --profiles-dir /dbt \
-                --project-dir /dbt \
-                --log-format json 2>&1 | tee /opt/airflow/logs/dbt_docs_{{ ds }}.log
+                --project-dir /dbt
         """,
         trigger_rule="all_done",
     )

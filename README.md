@@ -246,16 +246,3 @@ docker compose exec postgres-dw psql -U dwuser -d nyc_taxi_dw \
 # Stop everything
 docker compose down -v   # -v removes volumes (fresh start)
 ```
-
----
-
-## 🔒 Production Hardening Checklist
-
-- [ ] Move credentials to **Docker Secrets** or **Vault**
-- [ ] Enable **remote logging** (S3/GCS) in `airflow.cfg`
-- [ ] Add **AlertManager** or email alerts on DAG failure
-- [ ] Set `MAX_PAGES` dynamically based on last ingestion watermark
-- [ ] Add **Incremental loads** (filter by `tpep_pickup_datetime > last_run`)
-- [ ] Enable **dbt Cloud** for hosted docs + job scheduling
-- [ ] Add **Great Expectations** for advanced data quality profiling
-# NYC_TAXI_PIPLINE
